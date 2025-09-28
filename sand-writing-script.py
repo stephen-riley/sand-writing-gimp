@@ -4,6 +4,8 @@ try:
 except:
 	pass
 
+from pathlib import Path
+
 def dir_pretty(obj): print(*dir(obj), sep='\n')
 
 def props_pretty(filter):
@@ -111,6 +113,7 @@ def get_selection_low_v(layer, x1, y1, x2, y2):
 	return low_approx
 
 Gimp.progress_init('Running sand writing...')
+Gimp.context_push()
 
 img = Gimp.get_images()[0]
 sand_layer = img.get_layer_by_name('sand')
@@ -219,7 +222,7 @@ smudges(sand_layer, int(smudge_diameter * 0.8), pressure=smudge_pressure)
 
 # 14. Add signature
 Gimp.progress_set_text('Adding signature...')
-signature = "afiril"
+signature = "jaha ish"
 font_size = 128
 text_vertical_offset = 75
 sig_indent_v = base_v - indent_depth_v
@@ -253,7 +256,11 @@ sand_layer = img.get_layer_by_name('sand')
 shift_levels_gegl(sand_layer, new_low_v, new_high_v, final_base_v, final_base_v + (new_high_v - new_low_v + 1))
 img.convert_precision(Gimp.Precision.U8_NON_LINEAR)
 
+# 16.0 Save file with signature
+new_path = Path(img.get_file().path).with_name(f"{signature}.xcf")
+
 # 16. Cleanup
+Gimp.context_pop()
 Gimp.progress_set_text('Done.')
 Gimp.progress_update(1.0)
 Gimp.progress_end()
