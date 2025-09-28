@@ -22,9 +22,9 @@ def spread(layer, spread):
 	c.set_property("amount-x", spread)
 	c.set_property("amount-y", spread)
 	f.update()
-	layer.merge_filter(f)
+	new_layer = layer.merge_filter(f)
 	layer.resize_to_image_size()
-	return layer
+	return new_layer
 
 def gaussian_blur(layer, radius):
 	f = Gimp.DrawableFilter.new(layer, "gegl:gaussian-blur", "")
@@ -95,6 +95,21 @@ def smudges(layer, x_step, pressure=50):
 		x2 = x1 + height // 3 * 4
 		smudge_line(layer, x1, text_bounds.y2, x2, text_bounds.y1, pressure)
 
+def get_selection_median_v(layer, x1, y1, x2, y2):
+	image = layer.get_image()
+	image.select_rectangle(Gimp.ChannelOps.REPLACE, x1, y1, x2-x1, y2-y1)
+	stats = layer.histogram(Gimp.HistogramChannel.VALUE, 0, 1)
+	Gimp.Selection.none(image)
+	return stats.median
+
+def get_selection_low_v(layer, x1, y1, x2, y2):
+	image = layer.get_image()
+	image.select_rectangle(Gimp.ChannelOps.REPLACE, x1, y1, x2-x1, y2-y1)
+	stats = layer.histogram(Gimp.HistogramChannel.VALUE, 0, 1)
+	low_approx = stats.mean - 3 * stats.std_dev
+	Gimp.Selection.none(image)
+	return low_approx
+
 Gimp.progress_init('Running sand writing...')
 
 img = Gimp.get_images()[0]
@@ -120,8 +135,8 @@ outline_shrink_factor = 8
 final_base_v = 10
 gamma = 1.55
 step = 2
-initial_range_v = 15
-sand_range_v = 40
+initial_range_v = 30
+sand_range_v = 30
 gaussian_blur_radius = 25
 smudge_pressure = 60
 smudge_diameter = 300
@@ -182,6 +197,9 @@ for depth_v in range(rill_start_v, rill_end_v + 1, rill_incr_v):
 outline_layer.set_visible(False)
 text_layer.set_visible(False)
 
+# 11.5. Add noise to sand to prevent "terrain map" look
+sand_layer = spread(sand_layer, 20)
+
 # 12. Merge visible layers and get new histogram data
 img.merge_visible_layers(Gimp.MergeType.EXPAND_AS_NECESSARY)
 sand_layer = img.get_layer_by_name('sand')
@@ -212,20 +230,22 @@ Gimp.context_set_foreground(Gegl.Color.new('white'))
 extents = Gimp.text_get_extents_font(signature, font_size, font)
 x = (img.get_width() - extents.width) / 2
 y = img.get_height() - text_vertical_offset - extents.height
+background_low_v = get_selection_low_v(sand_layer, x, y, x + extents.width, y + extents.height)
 signature_layer = Gimp.text_font(img, None, x, y, signature, -1, True, font_size, font)
 signature_layer.resize_to_image_size()
+
+# add a "glow" to the text
 sig_glow_layer = copy_layer(signature_layer, 'signature glow', 3)
 alpha_to_selection(sig_glow_layer)
-Gimp.Selection.grow(img, 15)
+Gimp.Selection.grow(img, 5)
 Gimp.context_set_foreground(Gegl.Color.new("white"))
 sig_glow_layer.edit_fill(0)
-glow_v = new_high_v - indent_depth_v
+glow_v = background_low_v - indent_depth_v // 2
 shift_levels_gegl(sig_glow_layer, 255, 255, glow_v, glow_v)
 img.merge_down(sig_glow_layer, 0)
 Gimp.Selection.none(img)
 
-# we're in linear space and Color.new() only does non-linear, so shift to the desired color instead.
-shift_levels_gegl(signature_layer, 255, 255, indent_v, indent_v)
+shift_levels_gegl(signature_layer, 255, 255, background_low_v - indent_depth_v, background_low_v - indent_depth_v)
 img.merge_down(signature_layer, 0)
 
 # 15. Shift colors to final band and convert to non-linear
